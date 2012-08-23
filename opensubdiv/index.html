@@ -1,0 +1,320 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+"http://www.w3.org/TR/html4/loose.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OpenSubdiv WebGL viewer</title>
+    <script src="./jquery-latest.js" type="text/javascript"></script>
+    <script src="./glMatrix-0.9.5.min.js" type="text/javascript"></script>
+    <script src="./view.js" type="text/javascript" ></script>
+
+    <script id="shaderutil" type="x-shader/x-vertex">
+      uniform float dim;
+      uniform sampler2D texPosition;
+      varying vec3 color;
+
+      vec2 getUV(float index, float d) {
+        float u = fract(index*d+0.5*d);
+        float v = (floor(index*d+0.5*d)+0.5)*d;
+        return vec2(u, v);
+      }
+
+      vec3 getPosition(float vertexID) {
+         return texture2D(texPosition, getUV(vertexID, dim)).xyz;
+      }
+
+      void setPosition(float vertexID, vec3 p) {
+        float u = fract(vertexID*dim)*2.0-1.0;
+        float v = floor(vertexID*dim)*dim*2.0-1.0;
+         gl_Position = vec4(u+0.5*dim, v+0.5*dim, 0, 1);
+         color = p;
+      }
+      void setPosition2(float vertexID, vec3 p) {
+        float u = fract(vertexID)*2.0-1.0;
+        float v = floor(vertexID)*dim*2.0-1.0;
+         gl_Position = vec4(u+0.5*dim, v+0.5*dim, 0, 1);
+         color = p;
+      }
+    </script>
+    <script id="vshader" type="x-shader/x-vertex">
+      precision highp float;
+      
+      uniform mat4 mvpMatrix;
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projMatrix;
+      uniform sampler2D texNormal;
+      uniform sampler2D texUV;
+      uniform vec3 diffuse;
+      uniform vec3 ambient;
+      
+      attribute float vertexID;
+      varying vec2 uv;
+      varying vec3 scolor;
+      
+      vec3 getNormal(float vertexID) {
+         return texture2D(texNormal, getUV(vertexID, dim)).xyz;
+      }
+
+      void main(){
+        vec3 wp = getPosition(vertexID);
+        vec3 p = (modelViewMatrix * vec4(wp, 1)).xyz;
+        vec3 n = normalize((modelViewMatrix * vec4(getNormal(vertexID), 0)).xyz);
+        gl_Position = projMatrix * vec4(p, 1);
+        vec3 l = normalize(vec3(0, 1, 1));
+        
+        vec3 r = reflect(normalize(p), n);
+        color = vec3(dot(n, l) * diffuse)
+                + ambient;
+        scolor = vec3(max(0.0, pow(dot(r, l), 32.0)) * vec3(1));
+        uv = texture2D(texUV, getUV(vertexID, dim)).xy;
+      }
+    </script>
+    <script id="fshader" type="x-shader/x-fragment">
+      precision highp float;
+
+      uniform sampler2D uvtex;
+      varying vec3 color;
+      varying vec3 scolor;
+      varying vec2 uv;
+
+      void main()
+      {
+#ifdef USE_UV_MAP
+         vec3 c = texture2D(uvtex, uv).xyz;
+         gl_FragColor = vec4(color*c+scolor, 1);
+#else
+         gl_FragColor = vec4(color+scolor, 1);
+#endif
+      }
+    </script>
+
+    <script id="kfshader" type="x-shader/x-fragment">
+      precision highp float;
+      varying vec3 color;
+      void main()
+      {
+         gl_FragColor = vec4(color, 1);
+      }
+    </script>
+    <script id="faceKernel" type="x-shader/x-vertex">
+      precision highp float;
+      attribute float vertexID;
+      uniform float offset;
+
+      uniform sampler2D F_ITa;
+      uniform sampler2D F_IT;
+      uniform float F_ITa_ofs;
+      uniform float F_IT_ofs;
+      uniform float F_ITa_dim;
+      uniform float F_IT_dim;
+
+      void main() {
+        vec2 fit = texture2D(F_ITa, getUV(vertexID+F_ITa_ofs, F_ITa_dim)).xw;
+        float h = fit.x;
+        float n = fit.y;
+
+        float weight = 1.0/n;
+        vec3 v = vec3(0);
+      // XXX: bit difficult to support non-quads!
+        if (n == 4.0) {
+          for (float j=0.0; j<4.0; ++j) {
+            float index = texture2D(F_IT, getUV(h+j+F_IT_ofs, F_IT_dim)).x;
+            vec3 p = getPosition(index);
+            v += p * weight;
+          }
+        } else {
+          for (float j=0.0; j<10.0; ++j) {
+            if (j < n) {
+              float index = texture2D(F_IT, getUV(h+j+F_IT_ofs, F_IT_dim)).x;
+	      vec3 p = getPosition(index);
+              v += p * weight;
+            }
+          }
+        }
+        setPosition(vertexID+offset, v);
+      }
+    </script>
+    <script id="edgeKernel" type="x-shader/x-vertex">
+      precision highp float;
+      attribute float vertexID;
+      uniform float offset;
+
+      uniform sampler2D E_IT;
+      uniform sampler2D E_W;
+      uniform float E_IT_ofs;
+      uniform float E_W_ofs;
+      uniform float E_IT_dim;
+      uniform float E_W_dim;
+
+      void main()
+      {
+        vec4 eidx = texture2D(E_IT, getUV(vertexID+E_IT_ofs, E_IT_dim));
+
+        float weight = texture2D(E_W, getUV(vertexID+E_W_ofs, E_W_dim)).x;
+
+        vec3 v = vec3(0);
+        v += getPosition(eidx.x) * weight;
+        v += getPosition(eidx.y) * weight;
+
+        if (eidx.z != -1.0) {
+          float faceWeight = texture2D(E_W, getUV(vertexID+E_W_ofs, E_W_dim)).w;
+          v += getPosition(eidx.z) * faceWeight;
+          v += getPosition(eidx.w) * faceWeight;
+        }
+        setPosition(vertexID+offset, v);
+      }
+    </script>
+    <script id="vertexKernelB" type="x-shader/x-vertex">
+      precision highp float;
+      attribute float vertexID;
+      uniform float offset;
+      uniform float start;
+      uniform sampler2D V_IT;
+      uniform sampler2D V_ITa1;
+      uniform sampler2D V_ITa2;
+      uniform sampler2D V_W;
+      uniform float V_ITa1_ofs;
+      uniform float V_ITa2_ofs;
+      uniform float V_IT_ofs;
+      uniform float V_W_ofs;
+      uniform float V_ITa1_dim;
+      uniform float V_ITa2_dim;
+      uniform float V_IT_dim;
+      uniform float V_W_dim;
+      
+      void main()
+      {
+        float vid = vertexID + start;
+        vec3 ita = texture2D(V_ITa1, getUV(vid+V_ITa1_ofs, V_ITa1_dim)).xyz;
+        float h = ita.x;
+        float n = ita.y;
+        float p = ita.z;
+
+        float weight = texture2D(V_W, getUV(vid+V_W_ofs, V_W_dim)).x;
+
+        float wp = 1.0/(n*n);
+        float wv = (n-2.0) * n * wp;
+        
+        vec3 v = vec3(0);
+        v += getPosition(p) * weight * wv;
+      // XXX: to support extraordinary vertices!
+        for (float j = 0.0; j < 8.0; ++j) {
+            if(j < n) {
+              v += getPosition(texture2D(V_IT, getUV(h+j*2.0+V_IT_ofs, V_IT_dim)).x) * weight * wp;
+              v += getPosition(texture2D(V_IT, getUV(h+j*2.0+1.0+V_IT_ofs, V_IT_dim)).x) * weight * wp;
+            }
+        }
+        setPosition(vid+offset, v);
+      }
+      
+    </script>
+    <script id="vertexKernelA" type="x-shader/x-vertex">
+      precision highp float;
+      attribute float vertexID;
+      uniform float offset;
+      uniform float start;
+      uniform int pass;
+      uniform sampler2D V_IT;
+      uniform sampler2D V_ITa1;
+      uniform sampler2D V_ITa2;
+      uniform sampler2D V_W;
+      uniform float V_ITa1_ofs;
+      uniform float V_ITa2_ofs;
+      uniform float V_IT_ofs;
+      uniform float V_W_ofs;
+      uniform float V_ITa1_dim;
+      uniform float V_ITa2_dim;
+      uniform float V_IT_dim;
+      uniform float V_W_dim;
+
+      void main()
+      {
+        float vid = vertexID + start;
+        vec3 ita = texture2D(V_ITa1, getUV(vid+V_ITa1_ofs, V_ITa1_dim)).xyz;
+        float n = ita.y;
+        float p = ita.z;
+        vec2 eidx = texture2D(V_ITa2, getUV(vid+V_ITa2_ofs, V_ITa2_dim)).xw;
+        float eidx0 = eidx.x;
+        float eidx1 = eidx.y;
+
+        float weight = texture2D(V_W, getUV(vid+V_W_ofs, V_W_dim)).x;
+        if(pass==1) weight = 1.0-weight;
+
+        if (weight>0.0 && weight<1.0 && n > 0.0)
+            weight=1.0-weight;
+
+        vec3 v = vec3(0);
+	if(pass==0) { // A2 pass overlaps
+	  v = getPosition(vid+offset);
+	}
+
+        if (eidx0==-1.0 || (pass==1 && (n==-1.0)) ) {
+	   v += getPosition(p) * weight;
+        } else {
+	   v += getPosition(p) * weight * 0.75;
+	   v += getPosition(eidx0) * weight * 0.125;
+	   v += getPosition(eidx1) * weight * 0.125;
+        }
+        setPosition(vid+offset, v);
+      }
+      
+    </script>
+
+
+    <style type="text/css">
+      canvas#main
+      {
+      cursor: default;
+      }
+      div#control
+      {
+      position:absolute;
+      left : 850px;
+      }
+    </style>
+  </head>	
+  <body >
+    <iframe width="800" height="800" style="position:absolute;z-index:1" src=""></iframe>
+    <canvas id="main" width="800" height="600" style="position:absolute;z-index:2"></canvas>
+    <div id="control">
+    <span id="fps"></span> fps<br>
+    <span id="triangles"></span> triangles<br>
+    <select id="modelSelect" size=20>
+      <option value="test_catmark_cube" selected>test_catmark_cube</option>
+      <option value="test_catmark_cube_corner0">test_catmark_cube_corner0</option>
+      <option value="test_catmark_cube_corner1">test_catmark_cube_corner1</option>
+      <option value="test_catmark_cube_corner2">test_catmark_cube_corner2</option>
+      <option value="test_catmark_cube_corner3">test_catmark_cube_corner3</option>
+      <option value="test_catmark_cube_corner4">test_catmark_cube_corner4</option>
+      <option value="test_catmark_cube_creases0">test_catmark_cube_crease0</option>
+      <option value="test_catmark_cube_creases1">test_catmark_cube_crease1</option>
+      <option value="test_catmark_dart_edgecorner">test_catmark_dart_edgecorder</option>
+      <option value="test_catmark_dart_edgeonly">test_catmark_dart_edgeonly</option>
+      <option value="test_catmark_edgeonly">test_catmark_edgeonly</option>
+      <option value="test_catmark_pyramid">test_catmark_pyramid</option>
+      <option value="test_catmark_pyramid_creases0">test_catmark_pyramid_creases0</option>
+      <option value="test_catmark_pyramid_creases1">test_catmark_pyramid_creases1</option>
+      <option value="test_catmark_tent">test_catmark_tent</option>
+      <option value="test_catmark_tent_creases0">test_catmark_tent_creases0</option>
+      <option value="test_catmark_tent_creases1">test_catmark_tent_creases1</option>
+      <option value="toad">toad</option>
+      <option value="toad4">toad4</option>
+      <option value="gear">gear</option>
+      <option value="octa">octa</option>
+    </select>
+    <br>
+    <input id="hullCheckbox" type="checkbox" checked>Hull</input><br>
+    <input id="deformCheckbox" type="checkbox">Deform animation</input><br>
+    <input id="wireCheckbox" type="checkbox" checked>Wireframe</input><br>
+    <input id="uvCheckbox" type="checkbox">UV mapping</input><br>
+    <select id="levelSelect" size=6>
+      <option value="1">Level 1</option>
+      <option value="2">Level 2</option>
+      <option value="3" selected>Level 3</option>
+      <option value="4">Level 4</option>
+      <option value="5">Level 5</option>
+      <option value="6">Level 6</option>
+    </select>
+    </div>
+  </body>
+</html>
