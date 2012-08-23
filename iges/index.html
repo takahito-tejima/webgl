@@ -1,0 +1,74 @@
+<html>
+  <head>
+    <title>IGES to SVG converter</title>
+    <script src="../lib/jquery-latest.js" type="text/javascript"></script>
+    <script src="../Downloadify/js/swfobject.js" type="text/javascript"></script>
+    <script src="../Downloadify/js/downloadify.min.js" type="text/javascript"></script>
+    <script src="../lib/glMatrix-0.9.5.min.js" type="text/javascript"></script>
+    <script src="camera.js" type="text/javascript"></script>
+    <script src="iges.js" type="text/javascript"></script>
+    <script src="svgview.js" type="text/javascript"></script>
+
+    <link rel="stylesheet" href="default.css" type="text/css" />
+    <link rel="stylesheet" href="contents.css" type="text/css" />
+  </head>
+  
+  <body>
+    <h1>IGES to SVG converter (html5 required)</h1>
+
+    <div id="container">
+      <div id="viewframe">
+	<svg id="main" width="500" height="500" xmlns="http://www.w3.org/2000/svg">
+	  <g id="frame" transform="scale(10 10)"> 
+	    <g id="axis">
+	      <path id="xaxis", style="fill:none; stroke:red; stroke-width:1px" />
+	      <path id="yaxis", style="fill:none; stroke:green; stroke-width:1px" />
+	      <path id="zaxis", style="fill:none; stroke:blue; stroke-width:1px" />
+	    </g>
+	    <g id="area" />
+	  </g>
+	</svg>
+      </div>
+      <div id="infoframe">
+	<table class="info">
+	  <tr><th>iges file</th><td><input type="file" id="igesfile">
+	      <br />
+	      <a href="#" id="sample1" class="sample">sample1</a>,
+	      <a href="#" id="sample2" class="sample">sample2</a>,
+	      <a href="#" id="sample3" class="sample">sample3</a>
+	      <a href="#" id="sample4" class="sample">sample4</a><br>
+	      <a href="#" id="surface1" class="sample">surface1</a>
+	      <a href="#" id="surface2" class="sample">surface2</a>
+	      <a href="#" id="droid" class="sample">droid</a>
+	  </td></tr>
+	  <tr><th>save</th><td><p id="svgsave">SVG save</p></tr>
+	  <tr><th>last modified</th><td><div id="lastmodified" /></tr>
+	  <tr><th>show axis</th><td><input type="checkbox" id="showAxis" checked/></tr>
+	  <tr><th>show nurbs cv</th><td><input type="checkbox" id="showNurbs"/></tr>
+	  <tr><th>show bezier cv</th><td><input type="checkbox" id="showBezier"/></tr>
+	</table>
+
+	browse your iges file or select sample links.<br>
+	use mouse wheel to scale, drag to rotate.
+      </div>
+    </div>
+
+    
+  </body>
+<html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
